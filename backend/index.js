@@ -7,9 +7,21 @@ require("dotenv").config();
 
 const app = express();
 
-// Middleware
+// ====================== IMPROVED CORS ======================
+const corsOptions = {
+    origin: [
+        'http://localhost:5173',           // Vite default
+        'http://localhost:3000',           // React default
+        'https://expense-management-system-s9kh.onrender.com', // Your backend
+        '*'                                // Temporary (for testing)
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
-app.use(cors());
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGO_URI)
@@ -53,14 +65,14 @@ const Expense = mongoose.model("Expense", expenseSchema);
 =========================== */
 const authMiddleware = (req, res, next) => {
     try {
-        const token = req.headers.authorization?.split(" ")[1]; // Expect "Bearer <token>"
+        const token = req.headers.authorization?.split(" ")[1];
 
         if (!token) {
             return res.status(401).json({ message: "No token provided" });
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decoded; // { id: userId }
+        req.user = decoded;
         next();
     } catch (error) {
         res.status(401).json({ message: "Invalid or expired token" });
@@ -71,10 +83,12 @@ const authMiddleware = (req, res, next) => {
    Routes
 =========================== */
 
-// 🔹 REGISTER
+// 🔹 REGISTER - Improved with better logging
 app.post("/api/register", async (req, res) => {
     try {
         const { name, email, password } = req.body;
+
+        console.log("📝 Registration attempt for:", email);
 
         if (!name || !email || !password) {
             return res.status(400).json({ message: "All fields are required" });
@@ -82,6 +96,7 @@ app.post("/api/register", async (req, res) => {
 
         const existingUser = await User.findOne({ email });
         if (existingUser) {
+            console.log("⚠️ Email already exists:", email);
             return res.status(400).json({ message: "Email already exists" });
         }
 
@@ -90,9 +105,19 @@ app.post("/api/register", async (req, res) => {
         const user = new User({ name, email, password: hashedPassword });
         await user.save();
 
-        res.status(201).json({ message: "User registered successfully" });
+        console.log("✅ User registered successfully:", email);
+
+        res.status(201).json({ 
+            message: "User registered successfully",
+            userId: user._id 
+        });
+
     } catch (error) {
-        res.status(500).json({ message: "Server error", error: error.message });
+        console.error("❌ Registration Error:", error.message);
+        res.status(500).json({ 
+            message: "Server error during registration",
+            error: error.message 
+        });
     }
 });
 
@@ -123,11 +148,12 @@ app.post("/api/login", async (req, res) => {
             user: { id: user._id, name: user.name, email: user.email }
         });
     } catch (error) {
+        console.error("Login Error:", error.message);
         res.status(500).json({ message: "Server error" });
     }
 });
 
-// 🔹 ADD EXPENSE (Protected)
+// 🔹 ADD EXPENSE
 app.post("/api/expense", authMiddleware, async (req, res) => {
     try {
         const { title, amount, category, date } = req.body;
@@ -141,26 +167,27 @@ app.post("/api/expense", authMiddleware, async (req, res) => {
         });
 
         await expense.save();
-
         res.status(201).json({ message: "Expense added successfully", expense });
     } catch (error) {
+        console.error("Add Expense Error:", error.message);
         res.status(500).json({ message: "Server error", error: error.message });
     }
 });
 
-// 🔹 GET ALL EXPENSES (Protected)
+// 🔹 GET ALL EXPENSES
 app.get("/api/expenses", authMiddleware, async (req, res) => {
     try {
         const expenses = await Expense.find({ userId: req.user.id })
-            .sort({ date: -1 }); // Latest first
+            .sort({ date: -1 });
 
         res.json(expenses);
     } catch (error) {
+        console.error("Get Expenses Error:", error.message);
         res.status(500).json({ message: "Server error" });
     }
 });
 
-// Optional: Get Total Expense
+// 🔹 GET TOTAL EXPENSE
 app.get("/api/expenses/total", authMiddleware, async (req, res) => {
     try {
         const total = await Expense.aggregate([
@@ -170,6 +197,7 @@ app.get("/api/expenses/total", authMiddleware, async (req, res) => {
 
         res.json({ total: total[0]?.total || 0 });
     } catch (error) {
+        console.error("Total Expense Error:", error.message);
         res.status(500).json({ message: "Server error" });
     }
 });
